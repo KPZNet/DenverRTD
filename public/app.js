@@ -6,6 +6,35 @@ const POLL_MS = 10000;
 const STALE_MS = 90000;
 const MAX_SPEED = 45; // m/s sanity clamp
 
+// Union Station — the downtown hub where all rail lines converge.
+// Position is the GTFS parent-station centroid (stop_id 33727).
+const UNION_STATION = { name: 'Union Station', lat: 39.754338, lon: -105.00214 };
+const UNION_STATION_SVG = `
+<svg viewBox="0 0 80 56" width="56" height="40" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="40" cy="28" rx="34" ry="24" fill="#ffcf5c" opacity="0.18"/>
+  <rect x="7" y="26" width="17" height="18" rx="1" fill="#b9c0c9" stroke="#0c0f13" stroke-width="2"/>
+  <rect x="56" y="26" width="17" height="18" rx="1" fill="#b9c0c9" stroke="#0c0f13" stroke-width="2"/>
+  <g fill="#0c0f13">
+    <rect x="11" y="30" width="3" height="5"/><rect x="16" y="30" width="3" height="5"/>
+    <rect x="11" y="37" width="3" height="5"/><rect x="16" y="37" width="3" height="5"/>
+    <rect x="60" y="30" width="3" height="5"/><rect x="65" y="30" width="3" height="5"/>
+    <rect x="60" y="37" width="3" height="5"/><rect x="65" y="37" width="3" height="5"/>
+  </g>
+  <rect x="24" y="15" width="32" height="29" rx="1" fill="#e9edf2" stroke="#0c0f13" stroke-width="2"/>
+  <rect x="27" y="8" width="26" height="8" rx="1" fill="#e9edf2" stroke="#0c0f13" stroke-width="2"/>
+  <text x="40" y="14.2" text-anchor="middle" font-size="4.6" font-weight="800" fill="#0c0f13" letter-spacing="0.3">UNION STA.</text>
+  <circle cx="40" cy="24" r="4.4" fill="#0c0f13"/>
+  <circle cx="40" cy="24" r="3.2" fill="#ffd34d"/>
+  <line x1="40" y1="24" x2="40" y2="21.6" stroke="#0c0f13" stroke-width="0.9"/>
+  <line x1="40" y1="24" x2="41.9" y2="24.9" stroke="#0c0f13" stroke-width="0.9"/>
+  <path d="M28 44 v-6 a3.2 3.2 0 0 1 6.4 0 v6 z" fill="#0c0f13"/>
+  <path d="M36.8 44 v-7 a3.2 3.2 0 0 1 6.4 0 v7 z" fill="#0c0f13"/>
+  <path d="M45.6 44 v-6 a3.2 3.2 0 0 1 6.4 0 v6 z" fill="#0c0f13"/>
+  <rect x="2" y="44" width="76" height="2.4" fill="#0c0f13"/>
+  <rect x="5" y="48" width="70" height="1.4" fill="#6b7684"/>
+  <rect x="9" y="50.5" width="62" height="1.4" fill="#6b7684"/>
+</svg>`;
+
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([39.72, -104.99], 11);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -104,6 +133,15 @@ async function loadRoutes() {
     stopLayer.addLayer(m);
   }
 
+  const usStops = data.stops.filter(s => s.name.startsWith('Union Station'));
+  L.marker([UNION_STATION.lat, UNION_STATION.lon], {
+    icon: L.divIcon({ className: 'station-wrap', iconSize: [56, 40], iconAnchor: [28, 36], html: UNION_STATION_SVG }),
+    zIndexOffset: 900,
+  })
+    .bindTooltip('Union Station', { permanent: true, direction: 'right', offset: [26, -16], className: 'station-label' })
+    .on('click', () => showUnionStation(usStops))
+    .addTo(map);
+
   buildLegend(data.routes);
 }
 
@@ -119,6 +157,36 @@ async function showStop(st) {
     </div>`).join('');
   L.popup().setLatLng([st.lat, st.lon])
     .setContent(`<div class="pop-title">${st.name}</div>${rows || '<div class="pop-sub">No upcoming rail arrivals</div>'}`)
+    .openOn(map);
+}
+
+async function showUnionStation(stops) {
+  const now = Date.now() / 1000;
+  const all = [];
+  await Promise.all(stops.map(async st => {
+    try {
+      const res = await fetch(`/api/stops/${st.id}/arrivals`).then(r => r.json());
+      for (const a of res.arrivals || []) all.push(a);
+    } catch { /* one bad platform shouldn't break the board */ }
+  }));
+  all.sort((a, b) => a.ts - b.ts);
+  const seen = new Set();
+  const rows = [];
+  for (const a of all) {
+    const key = `${a.route}|${a.headsign}|${a.ts}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(`
+    <div class="arr-row">
+      <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
+      <span>${a.headsign || ''}</span>
+      <span class="arr-in">${fmtCountdown(a.ts, now)}</span>
+      ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
+    </div>`);
+    if (rows.length >= 14) break;
+  }
+  L.popup().setLatLng([UNION_STATION.lat, UNION_STATION.lon])
+    .setContent(`<div class="pop-title">Union Station</div><div class="pop-sub">All rail departures</div>${rows.join('') || '<div class="pop-sub">No upcoming rail departures</div>'}`)
     .openOn(map);
 }
 
