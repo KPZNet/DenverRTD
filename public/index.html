@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Denver RTD — Live Trains</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+  <div id="hud">
+    <div class="hud-title">Denver RTD <span>live trains</span></div>
+    <div class="hud-stats">
+      <span id="train-count">–</span> trains
+      <span class="dot-sep">•</span>
+      updated <span id="feed-age">–</span>
+      <span id="feed-err" class="err" hidden>feed error</span>
+    </div>
+    <div id="legend"></div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

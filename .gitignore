@@ -1,0 +1,4 @@
+node_modules/
+gtfs/
+google_transit.zip
+.DS_Store
