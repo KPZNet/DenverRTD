@@ -55,6 +55,12 @@ html, body, #map {
 }
 .legend-row:hover { background: rgba(255, 255, 255, 0.07); }
 .legend-row.off { opacity: 0.35; }
+.legend-row.legend-all {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 5px;
+  margin-bottom: 3px;
+}
+.legend-all .legend-name { font-weight: 700; }
 .legend-chip {
   width: 20px;
   height: 14px;
@@ -147,6 +153,15 @@ html, body, #map {
 .leaflet-popup-content { font-size: 13px; line-height: 1.45; }
 .pop-title { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
 .pop-sub { color: #9aa0a6; font-size: 12px; }
+.pop-sec {
+  color: #9aa0a6;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+.pop-title + .pop-sec { margin-top: 4px; }
 .arr-row {
   display: flex;
   align-items: center;

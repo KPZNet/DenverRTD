@@ -169,24 +169,35 @@ async function showUnionStation(stops) {
       for (const a of res.arrivals || []) all.push(a);
     } catch { /* one bad platform shouldn't break the board */ }
   }));
-  all.sort((a, b) => a.ts - b.ts);
-  const seen = new Set();
-  const rows = [];
-  for (const a of all) {
-    const key = `${a.route}|${a.headsign}|${a.ts}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    rows.push(`
-    <div class="arr-row">
-      <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
-      <span>${a.headsign || ''}</span>
-      <span class="arr-in">${fmtCountdown(a.ts, now)}</span>
-      ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
-    </div>`);
-    if (rows.length >= 14) break;
-  }
+
+  const board = (items, tsField) => {
+    const seen = new Set();
+    const rows = [];
+    for (const a of items) {
+      const ts = a[tsField];
+      const key = `${a.route}|${a.headsign}|${ts}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(`
+      <div class="arr-row">
+        <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
+        <span>${a.headsign || ''}</span>
+        <span class="arr-in">${fmtCountdown(ts, now)}</span>
+        ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
+      </div>`);
+      if (rows.length >= 8) break;
+    }
+    return rows.join('');
+  };
+
+  const depRows = board(all.filter(a => a.dep != null && a.dep >= now - 60).sort((a, b) => a.dep - b.dep), 'dep');
+  const arrRows = board(all.filter(a => a.arr != null && a.arr >= now - 60).sort((a, b) => a.arr - b.arr), 'arr');
+
   L.popup().setLatLng([UNION_STATION.lat, UNION_STATION.lon])
-    .setContent(`<div class="pop-title">Union Station</div><div class="pop-sub">All rail departures</div>${rows.join('') || '<div class="pop-sub">No upcoming rail departures</div>'}`)
+    .setContent(
+      `<div class="pop-title">Union Station</div>` +
+      `<div class="pop-sec">Departures</div>${depRows || '<div class="pop-sub">No upcoming rail departures</div>'}` +
+      `<div class="pop-sec">Arrivals</div>${arrRows || '<div class="pop-sub">No upcoming rail arrivals</div>'}`)
     .openOn(map);
 }
 
@@ -196,6 +207,32 @@ function buildLegend(routes) {
   const el = document.getElementById('legend');
   el.innerHTML = '';
   const sorted = [...routes].sort((a, b) => a.short.localeCompare(b.short));
+
+  const allRow = document.createElement('div');
+  allRow.className = 'legend-row legend-all';
+  allRow.innerHTML = `<span class="legend-name">All Off</span>`;
+  const setRoute = (r, off) => {
+    const row = document.getElementById(`leg-${r.id}`);
+    if (off) {
+      hiddenRoutes.add(r.id);
+      row?.classList.add('off');
+      routeLayers.get(r.id)?.remove();
+    } else {
+      hiddenRoutes.delete(r.id);
+      row?.classList.remove('off');
+      routeLayers.get(r.id)?.addTo(map);
+    }
+  };
+  const updateAllLabel = () => {
+    allRow.firstChild.textContent = sorted.some(r => !hiddenRoutes.has(r.id)) ? 'All Off' : 'All On';
+  };
+  allRow.onclick = () => {
+    const turnOff = sorted.some(r => !hiddenRoutes.has(r.id));
+    for (const r of sorted) setRoute(r, turnOff);
+    updateAllLabel();
+  };
+  el.appendChild(allRow);
+
   for (const r of sorted) {
     const row = document.createElement('div');
     row.className = 'legend-row';
@@ -203,15 +240,8 @@ function buildLegend(routes) {
     row.innerHTML = `<span class="legend-chip" style="background:#${r.color}">${r.short}</span>
       <span class="legend-name">${r.long}</span><span class="legend-count" id="cnt-${r.id}"></span>`;
     row.onclick = () => {
-      if (hiddenRoutes.has(r.id)) {
-        hiddenRoutes.delete(r.id);
-        row.classList.remove('off');
-        routeLayers.get(r.id)?.addTo(map);
-      } else {
-        hiddenRoutes.add(r.id);
-        row.classList.add('off');
-        routeLayers.get(r.id)?.remove();
-      }
+      setRoute(r, !hiddenRoutes.has(r.id));
+      updateAllLabel();
     };
     el.appendChild(row);
   }
