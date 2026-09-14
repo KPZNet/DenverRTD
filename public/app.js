@@ -124,16 +124,27 @@ async function loadRoutes() {
     routeLayers.get(s.routeId).addLayer(L.polyline(s.pts, { color, weight: 3, opacity: 0.9, interactive: false }));
   }
 
+  // One marker per station: "X Track N" platforms and duplicate-name
+  // platform stops collapse into a single dot at the group's centroid.
+  const groups = new Map(); // base station name -> [stops]
   for (const st of data.stops) {
-    const m = L.circleMarker([st.lat, st.lon], {
+    const base = st.name.replace(/\s+(Track\s+\w+|Center Track)$/, '');
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(st);
+  }
+  const usStops = groups.get('Union Station') || [];
+
+  for (const [base, members] of groups) {
+    if (base === 'Union Station') continue; // landmark marker covers it
+    const lat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+    const lon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+    const m = L.circleMarker([lat, lon], {
       radius: 3.5, color: '#14181d', weight: 1.5, fillColor: '#dfe3e8', fillOpacity: 1,
     });
-    m.bindTooltip(st.name, { direction: 'top', offset: [0, -4] });
-    m.on('click', () => showStop(st));
+    m.bindTooltip(base, { direction: 'top', offset: [0, -4] });
+    m.on('click', () => showStation(base, members, [lat, lon]));
     stopLayer.addLayer(m);
   }
-
-  const usStops = data.stops.filter(s => s.name.startsWith('Union Station'));
   L.marker([UNION_STATION.lat, UNION_STATION.lon], {
     icon: L.divIcon({ className: 'station-wrap', iconSize: [56, 40], iconAnchor: [28, 36], html: UNION_STATION_SVG }),
     zIndexOffset: 900,
@@ -145,18 +156,49 @@ async function loadRoutes() {
   buildLegend(data.routes);
 }
 
-async function showStop(st) {
-  const res = await fetch(`/api/stops/${st.id}/arrivals`).then(r => r.json());
+async function showStation(name, members, latlng) {
   const now = Date.now() / 1000;
-  const rows = (res.arrivals || []).map(a => `
-    <div class="arr-row">
-      <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
-      <span>${a.headsign || ''}</span>
-      <span class="arr-in">${fmtCountdown(a.ts, now)}</span>
-      ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
-    </div>`).join('');
-  L.popup().setLatLng([st.lat, st.lon])
-    .setContent(`<div class="pop-title">${st.name}</div>${rows || '<div class="pop-sub">No upcoming rail arrivals</div>'}`)
+  const sections = new Map(); // exact stop name -> {label, arrivals}
+  for (const st of members) {
+    if (!sections.has(st.name)) {
+      const label = st.name !== name && st.name.startsWith(name)
+        ? st.name.slice(name.length).trim()
+        : st.name;
+      sections.set(st.name, { label, arrivals: [] });
+    }
+  }
+  await Promise.all(members.map(async st => {
+    try {
+      const res = await fetch(`/api/stops/${st.id}/arrivals`).then(r => r.json());
+      sections.get(st.name).arrivals.push(...(res.arrivals || []));
+    } catch { /* one bad platform shouldn't break the board */ }
+  }));
+
+  const rowsFor = list => {
+    const seen = new Set();
+    const rows = [];
+    for (const a of [...list].sort((x, y) => x.ts - y.ts)) {
+      const key = `${a.route}|${a.headsign}|${a.ts}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(`
+      <div class="arr-row">
+        <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
+        <span>${a.headsign || ''}</span>
+        <span class="arr-in">${fmtCountdown(a.ts, now)}</span>
+        ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
+      </div>`);
+      if (rows.length >= 6) break;
+    }
+    return rows.join('') || '<div class="pop-sub">No upcoming rail arrivals</div>';
+  };
+
+  const secs = [...sections.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const body = secs.map(s =>
+    (secs.length > 1 ? `<div class="pop-sec">${s.label}</div>` : '') + rowsFor(s.arrivals)
+  ).join('');
+  L.popup().setLatLng(latlng)
+    .setContent(`<div class="pop-title">${name}</div>${body}`)
     .openOn(map);
 }
 
