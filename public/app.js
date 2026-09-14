@@ -58,6 +58,7 @@ const routeLayers = new Map(); // routeId -> L.layerGroup (polylines)
 const stopLayer = L.layerGroup().addTo(map);
 const trains = new Map();      // vehicleId -> anim state
 const hiddenRoutes = new Set();
+const stationsByName = new Map(); // base station name -> {members, lat, lon}
 
 function pointAt(shape, dist) {
   const { pts, cum } = shape;
@@ -142,17 +143,16 @@ async function loadRoutes() {
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(st);
   }
-  const usStops = groups.get('Union Station') || [];
-
   for (const [base, members] of groups) {
-    if (base === 'Union Station') continue; // landmark marker covers it
     const lat = members.reduce((s, m) => s + m.lat, 0) / members.length;
     const lon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+    stationsByName.set(base, { members, lat, lon });
+    if (base === 'Union Station') continue; // landmark marker covers it
     const m = L.marker([lat, lon], {
       icon: L.divIcon({ className: 'station-wrap', iconSize: [18, 15], iconAnchor: [9, 17], html: STATION_SVG }),
     });
     m.bindTooltip(base, { direction: 'top', offset: [0, -15] });
-    m.on('click', () => showStation(base, members, [lat, lon]));
+    m.on('click', () => showStationBoard(base, members, [lat, lon]));
     stopLayer.addLayer(m);
   }
   L.marker([UNION_STATION.lat, UNION_STATION.lon], {
@@ -160,62 +160,18 @@ async function loadRoutes() {
     zIndexOffset: 900,
   })
     .bindTooltip('Union Station', { permanent: true, direction: 'right', offset: [26, -16], className: 'station-label' })
-    .on('click', () => showUnionStation(usStops))
+    .on('click', () => showStationBoard('Union Station', stationsByName.get('Union Station').members,
+      [UNION_STATION.lat, UNION_STATION.lon]))
     .addTo(map);
 
+  buildStationPicker();
   buildLegend(data.routes);
 }
 
-async function showStation(name, members, latlng) {
-  const now = Date.now() / 1000;
-  const sections = new Map(); // exact stop name -> {label, arrivals}
-  for (const st of members) {
-    if (!sections.has(st.name)) {
-      const label = st.name !== name && st.name.startsWith(name)
-        ? st.name.slice(name.length).trim()
-        : st.name;
-      sections.set(st.name, { label, arrivals: [] });
-    }
-  }
-  await Promise.all(members.map(async st => {
-    try {
-      const res = await fetch(`/api/stops/${st.id}/arrivals`).then(r => r.json());
-      sections.get(st.name).arrivals.push(...(res.arrivals || []));
-    } catch { /* one bad platform shouldn't break the board */ }
-  }));
-
-  const rowsFor = list => {
-    const seen = new Set();
-    const rows = [];
-    for (const a of [...list].sort((x, y) => x.ts - y.ts)) {
-      const key = `${a.route}|${a.headsign}|${a.ts}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      rows.push(`
-      <div class="arr-row">
-        <span class="arr-chip" style="background:#${a.color}">${a.route}</span>
-        <span>${a.headsign || ''}</span>
-        <span class="arr-in">${fmtCountdown(a.ts, now)}</span>
-        ${a.delay > 60 ? `<span class="arr-delay late">+${Math.round(a.delay / 60)}m</span>` : ''}
-      </div>`);
-      if (rows.length >= 6) break;
-    }
-    return rows.join('') || '<div class="pop-sub">No upcoming rail arrivals</div>';
-  };
-
-  const secs = [...sections.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  const body = secs.map(s =>
-    (secs.length > 1 ? `<div class="pop-sec">${s.label}</div>` : '') + rowsFor(s.arrivals)
-  ).join('');
-  L.popup().setLatLng(latlng)
-    .setContent(`<div class="pop-title">${name}</div>${body}`)
-    .openOn(map);
-}
-
-async function showUnionStation(stops) {
+async function stationBoardHtml(name, members) {
   const now = Date.now() / 1000;
   const all = [];
-  await Promise.all(stops.map(async st => {
+  await Promise.all(members.map(async st => {
     try {
       const res = await fetch(`/api/stops/${st.id}/arrivals`).then(r => r.json());
       for (const a of res.arrivals || []) all.push(a);
@@ -245,12 +201,49 @@ async function showUnionStation(stops) {
   const depRows = board(all.filter(a => a.dep != null && a.dep >= now - 60).sort((a, b) => a.dep - b.dep), 'dep');
   const arrRows = board(all.filter(a => a.arr != null && a.arr >= now - 60).sort((a, b) => a.arr - b.arr), 'arr');
 
-  L.popup().setLatLng([UNION_STATION.lat, UNION_STATION.lon])
-    .setContent(
-      `<div class="pop-title">Union Station</div>` +
-      `<div class="pop-sec">Departures</div>${depRows || '<div class="pop-sub">No upcoming rail departures</div>'}` +
-      `<div class="pop-sec">Arrivals</div>${arrRows || '<div class="pop-sub">No upcoming rail arrivals</div>'}`)
-    .openOn(map);
+  return `<div class="pop-title">${name}</div>` +
+    `<div class="pop-sec">Departures</div>${depRows || '<div class="pop-sub">No upcoming rail departures</div>'}` +
+    `<div class="pop-sec">Arrivals</div>${arrRows || '<div class="pop-sub">No upcoming rail arrivals</div>'}`;
+}
+
+async function showStationBoard(name, members, latlng) {
+  const html = await stationBoardHtml(name, members);
+  L.popup().setLatLng(latlng).setContent(html).openOn(map);
+}
+
+/* ---------- station picker ---------- */
+
+function buildStationPicker() {
+  const sel = document.getElementById('station-select');
+
+  const quick = document.createElement('optgroup');
+  quick.label = 'Quick select';
+  quick.append(new Option('★ Union Station', 'Union Station'));
+
+  const all = document.createElement('optgroup');
+  all.label = 'All stations';
+  for (const n of [...stationsByName.keys()].sort((a, b) => a.localeCompare(b))) {
+    if (n !== 'Union Station') all.append(new Option(n, n));
+  }
+  sel.append(quick, all);
+
+  const board = document.getElementById('station-board');
+  const close = document.getElementById('station-close');
+  close.onclick = () => { board.hidden = true; close.hidden = true; };
+
+  let req = 0; // stale-response guard when stations are picked in quick succession
+  sel.onchange = async () => {
+    const name = sel.value;
+    sel.value = ''; // reset so picking the same station again re-opens the board
+    const st = stationsByName.get(name);
+    if (!st) return;
+    const myReq = ++req;
+    board.hidden = false;
+    close.hidden = false;
+    board.innerHTML = `<div class="pop-title">${name}</div><div class="pop-sub">Loading…</div>`;
+    const html = await stationBoardHtml(name, st.members);
+    if (myReq === req) board.innerHTML = html;
+  };
 }
 
 /* ---------- legend ---------- */
