@@ -37,6 +37,25 @@ html, body, #map {
 .hud-stats .err { color: #ff6b6b; }
 .dot-sep { margin: 0 4px; }
 
+#hud-toggle {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #9aa0a6;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+#hud-toggle:hover { background: rgba(255, 255, 255, 0.07); color: #e8eaed; }
+#hud.collapsed { min-width: 0; padding-right: 36px; }
+#hud.collapsed .hud-stats,
+#hud.collapsed #legend { display: none; }
+#hud.collapsed #hud-toggle { transform: rotate(-90deg); }
+
 #legend {
   margin-top: 10px;
   display: flex;

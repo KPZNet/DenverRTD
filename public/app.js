@@ -368,6 +368,9 @@ function tick(nowMs) {
   requestAnimationFrame(tick);
 }
 
+document.getElementById('hud-toggle').onclick = () =>
+  document.getElementById('hud').classList.toggle('collapsed');
+
 loadRoutes().then(() => {
   pollTrains();
   setInterval(pollTrains, POLL_MS);
