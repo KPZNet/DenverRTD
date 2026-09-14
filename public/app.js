@@ -35,6 +35,16 @@ const UNION_STATION_SVG = `
   <rect x="9" y="50.5" width="62" height="1.4" fill="#6b7684"/>
 </svg>`;
 
+// Regular station marker — a smaller, simpler sibling of the Union Station icon.
+const STATION_SVG = `
+<svg viewBox="0 0 24 20" width="18" height="15" xmlns="http://www.w3.org/2000/svg">
+  <path d="M3 9 L12 2.5 L21 9 Z" fill="#b9c0c9" stroke="#0c0f13" stroke-width="1.4" stroke-linejoin="round"/>
+  <rect x="5" y="9" width="14" height="8" rx="0.8" fill="#e9edf2" stroke="#0c0f13" stroke-width="1.4"/>
+  <rect x="10" y="11.5" width="4" height="5.5" fill="#0c0f13"/>
+  <circle cx="12" cy="6.8" r="1.3" fill="#ffd34d" stroke="#0c0f13" stroke-width="0.7"/>
+  <rect x="2" y="17" width="20" height="1.6" fill="#0c0f13"/>
+</svg>`;
+
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([39.72, -104.99], 11);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -138,10 +148,10 @@ async function loadRoutes() {
     if (base === 'Union Station') continue; // landmark marker covers it
     const lat = members.reduce((s, m) => s + m.lat, 0) / members.length;
     const lon = members.reduce((s, m) => s + m.lon, 0) / members.length;
-    const m = L.circleMarker([lat, lon], {
-      radius: 3.5, color: '#14181d', weight: 1.5, fillColor: '#dfe3e8', fillOpacity: 1,
+    const m = L.marker([lat, lon], {
+      icon: L.divIcon({ className: 'station-wrap', iconSize: [18, 15], iconAnchor: [9, 17], html: STATION_SVG }),
     });
-    m.bindTooltip(base, { direction: 'top', offset: [0, -4] });
+    m.bindTooltip(base, { direction: 'top', offset: [0, -15] });
     m.on('click', () => showStation(base, members, [lat, lon]));
     stopLayer.addLayer(m);
   }
